@@ -174,8 +174,8 @@ export const getMyFeedPosts = async (lastCursor) => {
             }
         }
     } catch (e) {
-        console.log(e)
-        throw new Error('Failed to fetch posts')
+        console.error("Create post error:", e)  // ← LOG FOR VERCEL
+    return { error: "Failed to create post" }
     }
 }
 
