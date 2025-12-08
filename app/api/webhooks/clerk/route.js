@@ -3,7 +3,7 @@ import { headers } from "next/headers"
 import { Webhook } from "svix"
 import { createUser, updateUser, deleteUser } from "@/actions/user"
 
-const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET
+const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SIGNING_SECRET 
 
 export async function POST(req) {
   if (!WEBHOOK_SECRET) {
