@@ -1,5 +1,4 @@
 import { updatePostLike } from "@/actions/post";
-import { updateQueryCacheLikes } from "@/utils";
 import { HappyProvider } from "@ant-design/happy-work-theme";
 import { useUser } from "@clerk/nextjs";
 import { Icon } from "@iconify/react";
@@ -7,76 +6,75 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button, Flex, Typography } from "antd";
 import React, { useEffect, useState } from "react";
 
-const LikeButton = ({ postId, likes, queryId }) => {
+const LikeButton = ({ postId, likes = [], queryId = "posts" }) => {  // ← 1. default []
   const { user } = useUser();
   const [isLiked, setIsLiked] = useState(false);
-  const queryClient = useQueryClient()
+  const queryClient = useQueryClient();
+
+  // ← 2. Safe likes + safe user.id
   useEffect(() => {
-    setIsLiked(likes?.some((like) => like?.authorId === user?.id));
-  }, [user, likes]);
+    const safeLikes = Array.isArray(likes) ? likes : [];
+    setIsLiked(safeLikes.some((like) => like?.authorId === user?.id));
+  }, [user?.id, likes]);
 
-  const actionType = isLiked ? 'unlike' : 'like'
+  const actionType = isLiked ? "unlike" : "like";
 
-  const {mutate} = useMutation({
-    mutationFn: (postId, actionType) => updatePostLike(postId, actionType),
-    onMutate: async() => {
-      await queryClient.cancelQueries(['posts', queryId])
+  const { mutate, isPending } = useMutation({
+    mutationFn: () => updatePostLike(postId, actionType), // ← 3. remove args from mutationFn
 
-      const previousPosts = queryClient.getQueryData(['posts', queryId])
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ["posts", queryId] }); // ← 4. fix key + use object
 
-      queryClient.setQueriesData(['posts', queryId], (old) => {
+      const previousPosts = queryClient.getQueryData(["posts", queryId]);
+
+      queryClient.setQueryData(["posts", queryId], (old) => { // ← setQueryData not setQueriesData
+        if (!old) return old;
+
         return {
           ...old,
-          pages: old.pages.map((page) => {
-            return {
-              ...page,
-              data: page.data.map((post) => {
-                if(post.id === postId) {
-                  return {
+          pages: old.pages.map((page) => ({
+            ...page,
+            data: page.data.map((post) =>
+              post.id === postId
+                ? {
                     ...post,
-                    likes: updateQueryCacheLikes (
-                      post.likes,
-                      postId,
-                      user.id,
-                      actionType
-                    )
+                    likes: isLiked
+                      ? likes.filter((l) => l.authorId !== user?.id)
+                      : [...likes, { authorId: user?.id }],
                   }
-                } else { 
-                  return post;
-                }
-              })
-            }
-          })
-        }
-      })
-      return { previousPosts }
+                : post
+            ),
+          })),
+        };
+      });
+
+      return { previousPosts };
     },
 
-    onError: (err, variables, context) => {
-      console.log("this is error", err);
-      queryClient.setQueriesData(["posts", queryId], context.previousPosts)
+    onError: (err, _, context) => {
+      queryClient.setQueryData(["posts", queryId], context.previousPosts);
     },
 
     onSettled: () => {
-      queryClient.invalidateQueries(["posts"])
-    }
-  })
+      queryClient.invalidateQueries({ queryKey: ["posts"] });
+    },
+  });
 
   return (
     <HappyProvider>
       <Button
         size="small"
         style={{ background: "transparent", border: "none", boxShadow: "none" }}
-        onClick={() => mutate(postId, actionType)}
+        onClick={() => mutate()}
       >
-        <Flex gap={".5rem"} align="center">
+        <Flex gap=".5rem" align="center">
           <Icon
             icon="ph:heart-fill"
-            width={"22px"}
+            width="22px"
             style={{ color: isLiked ? "var(--primary)" : "grey" }}
           />
           <Typography.Text className="typoBody2">
-            {likes?.length === 0 ? "Like" : `${likes?.length} Likes`}
+            {likes.length === 0 ? "Like" : `${likes.length} Likes`}
           </Typography.Text>
         </Flex>
       </Button>

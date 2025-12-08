@@ -174,8 +174,8 @@ export const getMyFeedPosts = async (lastCursor) => {
             }
         }
     } catch (e) {
-        console.error("Create post error:", e)
-        throw new Error("Failed to create post")
+        console.log(e)
+        throw new Error('Failed to fetch posts')
     }
 }
 
