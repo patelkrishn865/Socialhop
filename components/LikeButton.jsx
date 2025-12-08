@@ -1,68 +1,49 @@
-// LikeButton.js
-import React, { useEffect, useState } from "react";
+import { updatePostLike } from "@/actions/post";
+import { HappyProvider } from "@ant-design/happy-work-theme";
 import { useUser } from "@clerk/nextjs";
 import { Icon } from "@iconify/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button, Flex, Typography } from "antd";
-import { HappyProvider } from "@ant-design/happy-work-theme";
-import { updatePostLike } from "@/actions/post";
+import React, { useEffect, useState } from "react";
 
-const LikeButton = ({ postId, likes = [], queryId = "posts" }) => {
+const LikeButton = ({ postId, likes = [], queryId = "posts" }) => {  // ← 1. default []
   const { user } = useUser();
+  const [isLiked, setIsLiked] = useState(false);
   const queryClient = useQueryClient();
 
-  // Track whether the post was liked initially (so we can compute displayed count correctly)
-  const [initiallyLiked, setInitiallyLiked] = useState(false);
-  const [isLiked, setIsLiked] = useState(false);
-
+  // ← 2. Safe likes + safe user.id
   useEffect(() => {
     const safeLikes = Array.isArray(likes) ? likes : [];
-    const liked = !!safeLikes.find((l) => l?.authorId === user?.id);
-    setInitiallyLiked(liked);
-    setIsLiked(liked);
-  }, [likes, user?.id]);
-
-  // Compute displayed like count based on incoming likes prop and optimistic toggle
-  const baseLikesCount = Array.isArray(likes) ? likes.length : 0;
-  const displayedLikes =
-    baseLikesCount +
-    (isLiked && !initiallyLiked ? 1 : !isLiked && initiallyLiked ? -1 : 0);
+    setIsLiked(safeLikes.some((like) => like?.authorId === user?.id));
+  }, [user?.id, likes]);
 
   const actionType = isLiked ? "unlike" : "like";
 
-  const { mutate, isLoading } = useMutation({
-    mutationFn: () => updatePostLike(postId, actionType),
+  const { mutate, isPending } = useMutation({
+    mutationFn: () => updatePostLike(postId, actionType), // ← 3. remove args from mutationFn
 
     onMutate: async () => {
-      // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: ["posts", queryId] });
+      await queryClient.cancelQueries({ queryKey: ["posts", queryId] }); // ← 4. fix key + use object
 
-      // Snapshot previous value for rollback
       const previousPosts = queryClient.getQueryData(["posts", queryId]);
 
-      // Optimistically update cache
-      queryClient.setQueryData(["posts", queryId], (old) => {
+      queryClient.setQueryData(["posts", queryId], (old) => { // ← setQueryData not setQueriesData
         if (!old) return old;
 
         return {
           ...old,
           pages: old.pages.map((page) => ({
             ...page,
-            data: page.data.map((post) => {
-              if (post.id !== postId) return post;
-
-              const safePostLikes = Array.isArray(post.likes) ? post.likes : [];
-              const alreadyLiked = safePostLikes.some(
-                (l) => l?.authorId === user?.id
-              );
-
-              return {
-                ...post,
-                likes: alreadyLiked
-                  ? safePostLikes.filter((l) => l.authorId !== user?.id)
-                  : [...safePostLikes, { authorId: user?.id }],
-              };
-            }),
+            data: page.data.map((post) =>
+              post.id === postId
+                ? {
+                    ...post,
+                    likes: isLiked
+                      ? likes.filter((l) => l.authorId !== user?.id)
+                      : [...likes, { authorId: user?.id }],
+                  }
+                : post
+            ),
           })),
         };
       });
@@ -70,34 +51,21 @@ const LikeButton = ({ postId, likes = [], queryId = "posts" }) => {
       return { previousPosts };
     },
 
-    onError: (_err, _variables, context) => {
-      // rollback
-      if (context?.previousPosts) {
-        queryClient.setQueryData(["posts", queryId], context.previousPosts);
-      }
-      // restore local state to initial snapshot (safest)
-      setIsLiked((prev) => !prev);
+    onError: (err, _, context) => {
+      queryClient.setQueryData(["posts", queryId], context.previousPosts);
     },
 
     onSettled: () => {
-      // Ensure we re-fetch so server is source of truth
-      queryClient.invalidateQueries({ queryKey: ["posts", queryId] });
+      queryClient.invalidateQueries({ queryKey: ["posts"] });
     },
   });
-
-  const handleClick = () => {
-    // Immediate local toggle for instant color change and count update
-    setIsLiked((prev) => !prev);
-    mutate();
-  };
 
   return (
     <HappyProvider>
       <Button
         size="small"
         style={{ background: "transparent", border: "none", boxShadow: "none" }}
-        onClick={handleClick}
-        disabled={isLoading}
+        onClick={() => mutate()}
       >
         <Flex gap=".5rem" align="center">
           <Icon
@@ -106,7 +74,7 @@ const LikeButton = ({ postId, likes = [], queryId = "posts" }) => {
             style={{ color: isLiked ? "var(--primary)" : "grey" }}
           />
           <Typography.Text className="typoBody2">
-            {displayedLikes === 0 ? "Like" : `${displayedLikes} Likes`}
+            {likes.length === 0 ? "Like" : `${likes.length} Likes`}
           </Typography.Text>
         </Flex>
       </Button>
